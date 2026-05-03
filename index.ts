@@ -1243,7 +1243,7 @@ export default function (pi: ExtensionAPI) {
 				previewState = { mode: draftSupport === "unsupported" ? "message" : "draft", pendingText: "", lastSentText: "" };
 				startTypingLoop(ctx, nextTurn.chatId);
 				updateStatus(ctx);
-				pi.sendUserMessage(nextTurn.content);
+				pi.sendUserMessage(nextTurn.content, { deliverAs: "steer" });
 			}
 		}
 	});
