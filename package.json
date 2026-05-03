@@ -1,0 +1,9 @@
+{
+  "name": "pi-telegram-extension",
+  "version": "0.1.0",
+  "description": "Proactive Telegram messaging extension for pi - lets the LLM send messages to Telegram without the user messaging first",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
