@@ -227,7 +227,7 @@ function chunkParagraphs(text: string): string[] {
 
 	const normalized = text.replace(/\r\n/g, "\n");
 	const paragraphs = normalized.split(/\n\n+/);
-	const chunks: string[] = [];
+	const chunks: string[] =[];
 	let current = "";
 
 	const flushCurrent = (): void => {
@@ -238,7 +238,7 @@ function chunkParagraphs(text: string): string[] {
 	const splitLongBlock = (block: string): string[] => {
 		if (block.length <= MAX_MESSAGE_LENGTH) return [block];
 		const lines = block.split("\n");
-		const lineChunks: string[] = [];
+		const lineChunks: string[] =[];
 		let lineCurrent = "";
 		for (const line of lines) {
 			const candidate = lineCurrent.length === 0 ? line : `${lineCurrent}\n${line}`;
@@ -298,7 +298,7 @@ export default function (pi: ExtensionAPI) {
 	let config: TelegramConfig = {};
 	let pollingController: AbortController | undefined;
 	let pollingPromise: Promise<void> | undefined;
-	let queuedTelegramTurns: PendingTelegramTurn[] = [];
+	let queuedTelegramTurns: PendingTelegramTurn[] =[];
 	let activeTelegramTurn: ActiveTelegramTurn | undefined;
 	let typingInterval: ReturnType<typeof setInterval> | undefined;
 	let currentAbort: (() => void) | undefined;
@@ -430,7 +430,7 @@ export default function (pi: ExtensionAPI) {
 
 	function getMessageText(message: AgentMessage): string {
 		const value = message as unknown as Record<string, unknown>;
-		const content = Array.isArray(value.content) ? value.content : [];
+		const content = Array.isArray(value.content) ? value.content :[];
 		return content
 			.filter((block): block is { type: string; text?: string } => typeof block === "object" && block !== null && "type" in block)
 			.filter((block) => block.type === "text" && typeof block.text === "string")
@@ -493,7 +493,9 @@ export default function (pi: ExtensionAPI) {
 	function schedulePreviewFlush(chatId: number): void {
 		if (!previewState || previewState.flushTimer) return;
 		previewState.flushTimer = setTimeout(() => {
-			void flushPreview(chatId);
+			flushPreview(chatId).catch(() => {
+				// Silently ignore preview errors (e.g., 429 rate limits) to prevent crashing the extension
+			});
 		}, PREVIEW_THROTTLE_MS);
 	}
 
@@ -556,7 +558,7 @@ export default function (pi: ExtensionAPI) {
 			if (message.role !== "assistant") continue;
 			const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
 			const errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
-			const content = Array.isArray(message.content) ? message.content : [];
+			const content = Array.isArray(message.content) ? message.content :[];
 			const text = content
 				.filter((block): block is { type: string; text?: string } => typeof block === "object" && block !== null && "type" in block)
 				.filter((block) => block.type === "text" && typeof block.text === "string")
@@ -569,7 +571,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function collectTelegramFileInfos(messages: TelegramMessage[]): TelegramFileInfo[] {
-		const files: TelegramFileInfo[] = [];
+		const files: TelegramFileInfo[] =[];
 		for (const message of messages) {
 			if (Array.isArray(message.photo) && message.photo.length > 0) {
 				const photo = [...message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0)).pop();
@@ -639,7 +641,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function buildTelegramFiles(messages: TelegramMessage[]): Promise<DownloadedTelegramFile[]> {
-		const downloaded: DownloadedTelegramFile[] = [];
+		const downloaded: DownloadedTelegramFile[] =[];
 		for (const file of collectTelegramFileInfos(messages)) {
 			const path = await downloadTelegramFile(file.file_id, file.fileName);
 			downloaded.push({ path, fileName: file.fileName, isImage: file.isImage, mimeType: file.mimeType });
@@ -702,7 +704,7 @@ export default function (pi: ExtensionAPI) {
 		if (!firstMessage) throw new Error("Missing Telegram message for turn creation");
 		const rawText = messages.map((message) => (message.text || message.caption || "").trim()).filter(Boolean).join("\n\n");
 		const files = await buildTelegramFiles(messages);
-		const content: Array<TextContent | ImageContent> = [];
+		const content: Array<TextContent | ImageContent> =[];
 		let prompt = `${TELEGRAM_PREFIX}`;
 
 		if (historyTurns.length > 0) {
@@ -739,7 +741,7 @@ export default function (pi: ExtensionAPI) {
 		return {
 			chatId: firstMessage.chat.id,
 			replyToMessageId: firstMessage.message_id,
-			queuedAttachments: [],
+			queuedAttachments:[],
 			content,
 			historyText: formatTelegramHistoryText(rawText, files),
 		};
@@ -800,11 +802,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const usage = ctx.getContextUsage();
-			const lines: string[] = [];
+			const lines: string[] =[];
 			if (ctx.model) {
 				lines.push(`Model: ${ctx.model.provider}/${ctx.model.id}`);
 			}
-			const tokenParts: string[] = [];
+			const tokenParts: string[] =[];
 			if (totalInput) tokenParts.push(`↑${formatTokens(totalInput)}`);
 			if (totalOutput) tokenParts.push(`↓${formatTokens(totalOutput)}`);
 			if (totalCacheRead) tokenParts.push(`R${formatTokens(totalCacheRead)}`);
@@ -844,7 +846,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const historyTurns = preserveQueuedTurnsAsHistory ? queuedTelegramTurns.splice(0) : [];
+		const historyTurns = preserveQueuedTurnsAsHistory ? queuedTelegramTurns.splice(0) :[];
 		preserveQueuedTurnsAsHistory = false;
 		const turn = await createTelegramTurn(messages, historyTurns);
 		queuedTelegramTurns.push(turn);
@@ -858,7 +860,7 @@ export default function (pi: ExtensionAPI) {
 	async function handleAuthorizedTelegramMessage(message: TelegramMessage, ctx: ExtensionContext): Promise<void> {
 		if (message.media_group_id) {
 			const key = `${message.chat.id}:${message.media_group_id}`;
-			const existing = mediaGroups.get(key) ?? { messages: [] };
+			const existing = mediaGroups.get(key) ?? { messages:[] };
 			existing.messages.push(message);
 			if (existing.flushTimer) clearTimeout(existing.flushTimer);
 			existing.flushTimer = setTimeout(() => {
@@ -959,7 +961,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Telegram Attach",
 		description: "Queue one or more local files to be sent with the next Telegram reply.",
 		promptSnippet: "Queue local files to be sent with the next Telegram reply.",
-		promptGuidelines: [
+		promptGuidelines:[
 			"When handling a [telegram] message and the user asked for a file or generated artifact, call telegram_attach with the local path instead of only mentioning the path in text.",
 		],
 		parameters: Type.Object({
@@ -969,7 +971,7 @@ export default function (pi: ExtensionAPI) {
 			if (!activeTelegramTurn) {
 				throw new Error("telegram_attach can only be used while replying to an active Telegram turn");
 			}
-			const added: string[] = [];
+			const added: string[] =[];
 			for (const inputPath of params.paths) {
 				const stats = await stat(inputPath);
 				if (!stats.isFile()) {
@@ -982,7 +984,7 @@ export default function (pi: ExtensionAPI) {
 				added.push(inputPath);
 			}
 			return {
-				content: [{ type: "text", text: `Queued ${added.length} Telegram attachment(s).` }],
+				content:[{ type: "text", text: `Queued ${added.length} Telegram attachment(s).` }],
 				details: { paths: added },
 			};
 		},
@@ -992,7 +994,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function sendProactiveTelegramMessage(chatId: number | undefined, text: string): Promise<string> {
 		const chunks = chunkParagraphs(text);
-		const sentMessages: number[] = [];
+		const sentMessages: number[] =[];
 
 		for (const chunk of chunks) {
 			const result = await callTelegram<TelegramSentMessage>("sendMessage", {
@@ -1010,7 +1012,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Telegram Send",
 		description: "Send a proactive message to the user on Telegram. Use this when you want to message the user directly on Telegram without them messaging you first.",
 		promptSnippet: "Send a message to the user on Telegram",
-		promptGuidelines: [
+		promptGuidelines:[
 			"Use telegram_send when the user asks you to message them on Telegram.",
 			"Use telegram_send when responding to a Telegram conversation and you want to send an unsolicited follow-up.",
 			"Do not use telegram_send for regular terminal conversations - only when the user is actively communicating via Telegram.",
@@ -1028,7 +1030,7 @@ export default function (pi: ExtensionAPI) {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				return {
-					content: [{ type: "text", text: `Failed to send Telegram message: ${message}` }],
+					content:[{ type: "text", text: `Failed to send Telegram message: ${message}` }],
 					details: { error: message },
 				};
 			}
@@ -1040,7 +1042,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Telegram Send To",
 		description: "Send a message to a specific Telegram chat ID. Use telegram_send for the default user instead.",
 		promptSnippet: "Send a message to a specific Telegram chat ID",
-		promptGuidelines: [
+		promptGuidelines:[
 			"Use telegram_send_to only when you know the specific chat ID to send to.",
 			"Prefer telegram_send for general use as it sends to the paired user.",
 		],
@@ -1052,13 +1054,13 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const result = await sendProactiveTelegramMessage(params.chat_id, params.message);
 				return {
-					content: [{ type: "text", text: result }],
+					content:[{ type: "text", text: result }],
 					details: { sent: true, chat_id: params.chat_id },
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				return {
-					content: [{ type: "text", text: `Failed to send Telegram message: ${message}` }],
+					content:[{ type: "text", text: `Failed to send Telegram message: ${message}` }],
 					details: { error: message },
 				};
 			}
@@ -1099,7 +1101,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("telegram-status", {
 		description: "Show Telegram bridge status",
 		handler: async (_args, ctx) => {
-			const status = [
+			const status =[
 				`bot: ${config.botUsername ? `@${config.botUsername}` : "not configured"}`,
 				`allowed user: ${config.allowedUserId ?? "not paired"}`,
 				`polling: ${pollingPromise ? "running" : "stopped"}`,
@@ -1138,7 +1140,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
-		queuedTelegramTurns = [];
+		queuedTelegramTurns =[];
 		for (const state of mediaGroups.values()) {
 			if (state.flushTimer) clearTimeout(state.flushTimer);
 		}
@@ -1153,11 +1155,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event) => {
-		const suffix = isTelegramPrompt(event.prompt)
-			? `${SYSTEM_PROMPT_SUFFIX}\n- The current user message came from Telegram.`
-			: SYSTEM_PROMPT_SUFFIX;
+		// Ensure system prompt NEVER changes between turns to prevent local LLM KV cache rebuilds
 		return {
-			systemPrompt: event.systemPrompt + suffix,
+			systemPrompt: event.systemPrompt + SYSTEM_PROMPT_SUFFIX,
 		};
 	});
 
