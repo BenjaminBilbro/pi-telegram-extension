@@ -574,7 +574,7 @@ export default function (pi: ExtensionAPI) {
 		const files: TelegramFileInfo[] =[];
 		for (const message of messages) {
 			if (Array.isArray(message.photo) && message.photo.length > 0) {
-				const photo = [...message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0)).pop();
+				const photo =[...message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0)).pop();
 				if (photo) {
 					files.push({
 						file_id: photo.file_id,
@@ -849,11 +849,17 @@ export default function (pi: ExtensionAPI) {
 		const historyTurns = preserveQueuedTurnsAsHistory ? queuedTelegramTurns.splice(0) :[];
 		preserveQueuedTurnsAsHistory = false;
 		const turn = await createTelegramTurn(messages, historyTurns);
-		queuedTelegramTurns.push(turn);
+		
+		// If pi is idle, start immediately. Otherwise, push to queue.
 		if (ctx.isIdle()) {
+			activeTelegramTurn = turn;
+			previewState = { mode: draftSupport === "unsupported" ? "message" : "draft", pendingText: "", lastSentText: "" };
 			startTypingLoop(ctx, turn.chatId);
 			updateStatus(ctx);
 			pi.sendUserMessage(turn.content);
+		} else {
+			queuedTelegramTurns.push(turn);
+			updateStatus(ctx);
 		}
 	}
 
@@ -925,7 +931,7 @@ export default function (pi: ExtensionAPI) {
 						offset: config.lastUpdateId !== undefined ? config.lastUpdateId + 1 : undefined,
 						limit: 10,
 						timeout: 30,
-						allowed_updates: ["message", "edited_message"],
+						allowed_updates:["message", "edited_message"],
 					},
 					{ signal },
 				);
@@ -1045,7 +1051,6 @@ export default function (pi: ExtensionAPI) {
 		promptGuidelines:[
 			"Use telegram_send_to only when you know the specific chat ID to send to.",
 			"Prefer telegram_send for general use as it sends to the paired user.",
-			"The chat ID that you send a message to cannot respond to you."
 		],
 		parameters: Type.Object({
 			chat_id: Type.Number({ description: "The Telegram chat ID to send to" }),
@@ -1141,7 +1146,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
-		queuedTelegramTurns =[];
+		queuedTelegramTurns = [];
 		for (const state of mediaGroups.values()) {
 			if (state.flushTimer) clearTimeout(state.flushTimer);
 		}
@@ -1162,16 +1167,11 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
+	// NOTE: agent_start no longer assigns activeTelegramTurn from the queue.
+	// That assignment now happens in dispatchAuthorizedTelegramMessages (when idle)
+	// so we never accidentally hijack a terminal turn.
 	pi.on("agent_start", async (_event, ctx) => {
 		currentAbort = () => ctx.abort();
-		if (!activeTelegramTurn && queuedTelegramTurns.length > 0) {
-			const nextTurn = queuedTelegramTurns.shift();
-			if (nextTurn) {
-				activeTelegramTurn = { ...nextTurn };
-				previewState = { mode: draftSupport === "unsupported" ? "message" : "draft", pendingText: "", lastSentText: "" };
-				startTypingLoop(ctx);
-			}
-		}
 		updateStatus(ctx);
 	});
 
@@ -1198,45 +1198,51 @@ export default function (pi: ExtensionAPI) {
 		stopTypingLoop();
 		activeTelegramTurn = undefined;
 		updateStatus(ctx);
-		if (!turn) return;
 
-		const assistant = extractAssistantText(event.messages);
-		if (assistant.stopReason === "aborted") {
-			await clearPreview(turn.chatId);
-			return;
-		}
-		if (assistant.stopReason === "error") {
-			await clearPreview(turn.chatId);
-			await sendTextReply(turn.chatId, turn.replyToMessageId, assistant.errorMessage || "Telegram bridge: pi failed while processing the request.");
-			return;
-		}
+		// Always handle the finished Telegram turn if there was one.
+		if (turn) {
+			const assistant = extractAssistantText(event.messages);
+			if (assistant.stopReason === "aborted") {
+				await clearPreview(turn.chatId);
+			} else if (assistant.stopReason === "error") {
+				await clearPreview(turn.chatId);
+				await sendTextReply(turn.chatId, turn.replyToMessageId, assistant.errorMessage || "Telegram bridge: pi failed while processing the request.");
+			} else {
+				const finalText = assistant.text;
+				if (previewState) {
+					previewState.pendingText = finalText ?? previewState.pendingText;
+				}
 
-		const finalText = assistant.text;
-		if (previewState) {
-			previewState.pendingText = finalText ?? previewState.pendingText;
-		}
+				if (finalText && finalText.length <= MAX_MESSAGE_LENGTH) {
+					const finalized = await finalizePreview(turn.chatId);
+					if (!finalized && turn.queuedAttachments.length > 0 && !finalText) {
+						await sendTextReply(turn.chatId, turn.replyToMessageId, "Attached requested file(s).");
+					}
+				} else {
+					await clearPreview(turn.chatId);
+					if (finalText) {
+						await sendTextReply(turn.chatId, turn.replyToMessageId, finalText);
+					} else if (turn.queuedAttachments.length > 0) {
+						await sendTextReply(turn.chatId, turn.replyToMessageId, "Attached requested file(s).");
+					}
+				}
 
-		if (finalText && finalText.length <= MAX_MESSAGE_LENGTH) {
-			const finalized = await finalizePreview(turn.chatId);
-			if (!finalized && turn.queuedAttachments.length > 0 && !finalText) {
-				await sendTextReply(turn.chatId, turn.replyToMessageId, "Attached requested file(s).");
+				await sendQueuedAttachments(turn);
 			}
-		} else {
-			await clearPreview(turn.chatId);
-			if (finalText) {
-				await sendTextReply(turn.chatId, turn.replyToMessageId, finalText);
-			} else if (turn.queuedAttachments.length > 0) {
-				await sendTextReply(turn.chatId, turn.replyToMessageId, "Attached requested file(s).");
-			}
 		}
 
-		await sendQueuedAttachments(turn);
-
+		// Always check the Telegram queue after any agent turn ends (terminal or Telegram).
+		// This is the fix: previously this was inside the `if (turn)` block, so queue items
+		// accumulated silently whenever the model finished a terminal (non-Telegram) task.
 		if (queuedTelegramTurns.length > 0 && !preserveQueuedTurnsAsHistory) {
-			const nextTurn = queuedTelegramTurns[0];
-			startTypingLoop(ctx, nextTurn.chatId);
-			updateStatus(ctx);
-			pi.sendUserMessage(nextTurn.content);
+			const nextTurn = queuedTelegramTurns.shift();
+			if (nextTurn) {
+				activeTelegramTurn = nextTurn;
+				previewState = { mode: draftSupport === "unsupported" ? "message" : "draft", pendingText: "", lastSentText: "" };
+				startTypingLoop(ctx, nextTurn.chatId);
+				updateStatus(ctx);
+				pi.sendUserMessage(nextTurn.content, { streamingBehavior: "steer" });
+			}
 		}
 	});
 }
