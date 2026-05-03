@@ -1045,6 +1045,7 @@ export default function (pi: ExtensionAPI) {
 		promptGuidelines:[
 			"Use telegram_send_to only when you know the specific chat ID to send to.",
 			"Prefer telegram_send for general use as it sends to the paired user.",
+			"The chat ID that you send a message to cannot respond to you."
 		],
 		parameters: Type.Object({
 			chat_id: Type.Number({ description: "The Telegram chat ID to send to" }),
